@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "seed": "node scripts/seed.js"
   },
   "license": "ISC",
   "dependencies": {
