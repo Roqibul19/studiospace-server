@@ -17,6 +17,16 @@ app.get("/", (req, res) => {
   res.send({ message: "StudioSpace server is running" });
 });
 
+// On Vercel the server starts on demand, so connect when a request needs it.
+app.use("/api", async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use("/api/studios", studiosRouter);
 app.use("/api/bookings", bookingsRouter);
 
@@ -31,13 +41,18 @@ app.use((err, req, res, next) => {
     .send({ message: err.status ? err.message : "Something went wrong" });
 });
 
-connectDB()
-  .then(() => {
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
+// Vercel runs the exported app itself. Everywhere else it needs a port.
+if (!process.env.VERCEL) {
+  connectDB()
+    .then(() => {
+      app.listen(port, () => {
+        console.log(`Server running on port ${port}`);
+      });
+    })
+    .catch((error) => {
+      console.error("Could not connect to MongoDB:", error.message);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error("Could not connect to MongoDB:", err.message);
-    process.exit(1);
-  });
+}
+
+export default app;
