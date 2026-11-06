@@ -39,13 +39,23 @@ function readStudio(body = {}) {
     location: text("location"),
     image: text("image"),
     amenities: Array.isArray(body.amenities)
-      ? body.amenities.filter((item) => typeof item === "string" && item.trim())
+      ? [
+          ...new Set(
+            body.amenities
+              .filter((item) => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          ),
+        ]
       : [],
     overview: text("overview"),
   };
 
-  for (const field of ["title", "location", "image", "overview"]) {
+  for (const field of ["title", "location", "overview"]) {
     if (!data[field]) errors.push(`${field} is required`);
+  }
+  if (!isHttpUrl(data.image)) {
+    errors.push("image must be a valid http or https URL");
   }
   if (!CATEGORIES.includes(data.category)) {
     errors.push(`category must be one of: ${CATEGORIES.join(", ")}`);
@@ -59,6 +69,15 @@ function readStudio(body = {}) {
   }
 
   return { errors, data };
+}
+
+function isHttpUrl(value) {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function checkId(req, res, next) {
