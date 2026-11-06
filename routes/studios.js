@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { getCollection } from "../db.js";
+import { verifyToken } from "../middleware/verifyToken.js";
 
 const router = Router();
 
@@ -19,7 +20,7 @@ function escapeRegex(text) {
 }
 
 // Returns { errors, data }. Only known fields are copied, so a request cannot
-// set values such as the rating.
+// set values such as the rating or the owner.
 function readStudio(body = {}) {
   const errors = [];
   const text = (field) =>
@@ -41,18 +42,9 @@ function readStudio(body = {}) {
       ? body.amenities.filter((item) => typeof item === "string" && item.trim())
       : [],
     overview: text("overview"),
-    ownerName: text("ownerName"),
-    ownerEmail: text("ownerEmail"),
   };
 
-  for (const field of [
-    "title",
-    "location",
-    "image",
-    "overview",
-    "ownerName",
-    "ownerEmail",
-  ]) {
+  for (const field of ["title", "location", "image", "overview"]) {
     if (!data[field]) errors.push(`${field} is required`);
   }
   if (!CATEGORIES.includes(data.category)) {
@@ -76,15 +68,28 @@ function checkId(req, res, next) {
   next();
 }
 
-// GET /api/studios?category=&search=&ownerEmail=
+async function requireOwner(req, res, next) {
+  req.studioId = new ObjectId(req.params.id);
+  const studio = await studios().findOne(
+    { _id: req.studioId },
+    { projection: { ownerEmail: 1 } },
+  );
+
+  if (!studio) return res.status(404).send({ message: "Studio not found" });
+  if (studio.ownerEmail !== req.user.email) {
+    return res
+      .status(403)
+      .send({ message: "Forbidden: you can only change your own studios" });
+  }
+  next();
+}
+
+// GET /api/studios?category=&search=
 router.get("/", async (req, res) => {
-  const { category, search, ownerEmail } = req.query;
+  const { category, search } = req.query;
   const filter = {};
 
   if (typeof category === "string" && category) filter.category = category;
-  if (typeof ownerEmail === "string" && ownerEmail) {
-    filter.ownerEmail = ownerEmail;
-  }
   if (typeof search === "string" && search.trim()) {
     const pattern = new RegExp(escapeRegex(search.trim()), "i");
     filter.$or = [{ title: pattern }, { location: pattern }];
@@ -104,45 +109,55 @@ router.get("/featured", async (req, res) => {
   res.send(result);
 });
 
+// GET /api/studios/mine: the logged-in user's own listings
+router.get("/mine", verifyToken, async (req, res) => {
+  const result = await studios()
+    .find({ ownerEmail: req.user.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(result);
+});
+
 router.get("/:id", checkId, async (req, res) => {
   const studio = await studios().findOne({ _id: new ObjectId(req.params.id) });
   if (!studio) return res.status(404).send({ message: "Studio not found" });
   res.send(studio);
 });
 
-router.post("/", async (req, res) => {
+router.post("/", verifyToken, async (req, res) => {
   const { errors, data } = readStudio(req.body);
   if (errors.length) {
     return res.status(400).send({ message: errors.join(", ") });
   }
 
-  const studio = { ...data, rating: 0, createdAt: new Date() };
+  const studio = {
+    ...data,
+    ownerName: req.user.name,
+    ownerEmail: req.user.email,
+    ownerImage: req.user.image,
+    rating: 0,
+    createdAt: new Date(),
+  };
   const result = await studios().insertOne(studio);
   res.status(201).send({ _id: result.insertedId, ...studio });
 });
 
-router.patch("/:id", checkId, async (req, res) => {
+router.patch("/:id", verifyToken, checkId, requireOwner, async (req, res) => {
   const { errors, data } = readStudio(req.body);
   if (errors.length) {
     return res.status(400).send({ message: errors.join(", ") });
   }
 
   const result = await studios().findOneAndUpdate(
-    { _id: new ObjectId(req.params.id) },
+    { _id: req.studioId },
     { $set: { ...data, updatedAt: new Date() } },
     { returnDocument: "after" },
   );
-  if (!result) return res.status(404).send({ message: "Studio not found" });
   res.send(result);
 });
 
-router.delete("/:id", checkId, async (req, res) => {
-  const result = await studios().deleteOne({
-    _id: new ObjectId(req.params.id),
-  });
-  if (!result.deletedCount) {
-    return res.status(404).send({ message: "Studio not found" });
-  }
+router.delete("/:id", verifyToken, checkId, requireOwner, async (req, res) => {
+  await studios().deleteOne({ _id: req.studioId });
   res.send({ message: "Studio deleted" });
 });
 
