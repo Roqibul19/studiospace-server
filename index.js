@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { connectDB } from "./db.js";
+import bookingsRouter from "./routes/bookings.js";
 import studiosRouter from "./routes/studios.js";
 
 const app = express();
@@ -17,6 +18,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/studios", studiosRouter);
+app.use("/api/bookings", bookingsRouter);
 
 app.use((req, res) => {
   res.status(404).send({ message: "Route not found" });
